@@ -1,0 +1,285 @@
+Chapter 11 of Programming in Scala, First Edition
+Scala's Hierarchy
+by Martin Odersky, Lex Spoon, and Bill Venners
+December 10, 2008
+
+
+
+
+Now that you've seen the details of class inheritance in the previous chapter, it is a good time
+to take a step back and look at Scala's class hierarchy as a whole. In Scala, every class inherits
+from a common superclass named Any. Because every class is a subclass of Any, the methods
+defined in Any are "universal" methods: they may be invoked on any object. Scala also defines
+some interesting classes at the bottom of the hierarchy, Null and Nothing, which essentially
+act as common subclasses. For example, just as Any is a superclass of every other class,
+Nothing is a subclass of every other class. In this chapter, we'll give you a tour of Scala's
+class hierarchy.
+
+
+11.1 Scala's class hierarchy [link]
+
+
+
+Figure 11.1 shows an outline of Scala's
+class hierarchy. At the top of the hierarchy is class
+Any, which defines methods that include the following:
+  final def ==(that: Any): Boolean
+  final def !=(that: Any): Boolean
+  def equals(that: Any): Boolean
+  def hashCode: Int
+  def toString: String
+Because every class inherits from Any, every object in a Scala program can be compared using
+==, !=, or equals; hashed using hashCode; and
+formatted using toString.
+The equality and inequality methods, == and !=, are declared final 
+in class Any, so they cannot be overridden
+in subclasses. In fact, == is always the same as equals and !=
+is always the negation of equals. So individual classes can tailor what 
+== or != means by overriding the equals method.
+We'll show an example later in this chapter.
+
+
+
+
+Class hierarchy of Scala.
+
+
+
+
+The root class Any has two subclasses: AnyVal and AnyRef.
+AnyVal is the parent class of every built-in value class in
+Scala. There
+are nine such value classes: Byte, Short, Char, Int,
+Long, Float, Double, Boolean, and Unit. The first eight
+of these correspond to Java's primitive types, and their values are
+represented at run time as Java's primitive values.  The instances of these
+classes are all written as literals in Scala.  For example, 42 is
+an instance of Int, 'x' is an instance of
+Char, and false an instance of Boolean.  You cannot create
+instances of these classes using new. This is enforced by the "trick" that value
+classes are all defined to be both abstract and final. So if you were to write:
+  scala> new Int
+you would get:
+
+  <console>:5: error: class Int is abstract; cannot be 
+  instantiated
+         new Int
+         ^
+
+
+The other value class, Unit, corresponds roughly to Java's void
+type; it is used as the result type of a method that does not
+otherwise return an interesting result.  Unit has a single instance
+value, which is written (), as discussed in Section 7.2.
+
+As explained in Chapter 5, the value classes support the usual
+arithmetic and boolean operators as methods.  For instance, Int
+has methods named + and *, and Boolean has
+methods named || and &&.  Value classes also inherit all methods
+from class Any. You can test this in the interpreter: 
+  scala> 42.toString
+  res1: java.lang.String = 42
+    scala> 42.hashCode
+  res2: Int = 42
+    scala> 42 equals 42
+  res3: Boolean = true
+Note that the value
+class space is flat; all value classes are subtypes of
+scala.AnyVal, but they do not subclass each other.  Instead there
+are implicit conversions between different
+value class types. For example, an instance of class scala.Int is
+automatically widened (by an implicit conversion) to an instance of class scala.Long when
+required.
+
+As mentioned in Section 5.9,
+implicit conversions are also used to add more functionality to
+value types. For instance, the type Int supports all of the operations below:
+
+  scala> 42 max 43
+  res4: Int = 43
+    scala> 42 min 43
+  res5: Int = 42
+    scala> 1 until 5
+  res6: Range = Range(1, 2, 3, 4)
+    scala> 1 to 5
+  res7: Range.Inclusive = Range(1, 2, 3, 4, 5)
+    scala> 3.abs
+  res8: Int = 3
+    scala> (-3).abs
+  res9: Int = 3
+Here's how this works: The methods min, max, until, to,
+and abs are all defined in a class scala.runtime.RichInt, and
+there is an implicit conversion from class Int to RichInt. The
+conversion is applied whenever a method is invoked on an Int
+that is undefined in Int but defined in RichInt. Similar
+"booster classes" and implicit conversions exist for the other value classes.
+Implicit conversions will be discussed in detail in
+Chapter 21.
+
+
+The other subclass of the root class Any is class AnyRef.  This
+is the base class of all reference classes in Scala.  As mentioned previously, on the
+Java platform AnyRef is in fact just an alias for class
+java.lang.Object. So classes written in Java as well as classes
+written in Scala all inherit from AnyRef.[1]
+One way to think of java.lang.Object, therefore, is as the way AnyRef is implemented on the
+Java platform. Thus, although you can use Object
+and AnyRef interchangeably in Scala programs on the Java platform, the recommended style
+is to use AnyRef everywhere.
+
+Scala classes are different from Java classes in that they also
+inherit from a special marker trait called ScalaObject. The idea is
+that the ScalaObject contains methods that the Scala compiler
+defines and implements in order to make execution of Scala programs
+more efficient. Right now, Scala object contains a single method, named
+$tag, which is used internally to speed up pattern matching.
+
+11.2 How primitives are implemented [link]
+
+
+
+How is all this implemented? In fact, Scala stores integers in the
+same way as Java: as 32-bit words.  This is important for efficiency on
+the JVM and also for interoperability with Java libraries.  Standard
+operations like addition or multiplication are implemented as
+primitive operations.  However, Scala uses the "backup" class
+java.lang.Integer whenever an integer needs to be seen as a (Java) object.
+This happens for instance when invoking the toString method on an integer 
+number or when assigning an integer to a variable of type Any.
+Integers of type Int are converted transparently
+to "boxed integers" of type java.lang.Integer whenever necessary.
+
+All this sounds a lot like auto-boxing in Java 5 and it is indeed quite similar.
+There's one crucial difference, though, in that boxing in Scala is much less visible 
+than boxing in Java. Try the following in Java:
+  // This is Java
+  boolean isEqual(int x, int y) {
+    return x == y;
+  }
+  System.out.println(isEqual(421, 421));
+You will surely get true. Now, change the argument types of isEqual to
+java.lang.Integer (or Object, the result will be the same):
+  // This is Java
+  boolean isEqual(Integer x, Integer y) {
+    return x == y;
+  }
+  System.out.println(isEqual(421, 421));
+You will find that you get false! What happens is that the number 421 gets boxed twice,
+so that the arguments for x and y are two different objects.
+Because == means reference equality on reference types, and Integer is a reference type,
+the result is false. This is one aspect where it shows that Java is not a 
+pure object-oriented language. There is a difference between primitive types and reference types
+that can be clearly observed.
+
+Now try the same experiment in Scala:
+  scala> def isEqual(x: Int, y: Int) = x == y
+  isEqual: (Int,Int)Boolean
+    scala> isEqual(421, 421)
+  res10: Boolean = true
+    scala> def isEqual(x: Any, y: Any) = x == y
+  isEqual: (Any,Any)Boolean
+    scala> isEqual(421, 421)
+  res11: Boolean = true
+In fact, the equality operation == in Scala is
+designed to be transparent with respect to the type's
+representation. For value types, it is the natural (numeric or
+boolean) equality. For reference types, == is treated as
+an alias of the equals method inherited from 
+Object. That method is originally defined as
+reference equality, but is overridden by many subclasses to
+implement their natural notion of equality. 
+This also means that in Scala 
+you never fall into Java's well-known trap concerning string comparisons.
+In Scala, string comparison works as it should:
+  scala> val x = "abcd".substring(2)
+  x: java.lang.String = cd
+    scala> val y = "abcd".substring(2)
+  y: java.lang.String = cd
+    scala> x == y
+  res12: Boolean = true
+In Java, the result of comparing x with y would be false.  The 
+programmer should have used equals in this case, but it is easy
+to forget.
+
+However, there are situations where you need reference equality
+instead of user-defined equality.  For example, in some situations where
+efficiency is paramount, you would like to hash cons
+with some classes and compare their instances with reference
+equality.[2]
+For these cases, class AnyRef
+defines an additional eq method, which cannot be
+overridden and is implemented as reference equality (i.e., it behaves
+like == in Java for reference types). There's also the negation of eq, which is called ne.
+For example:
+  scala> val x = new String("abc")
+  x: java.lang.String = abc
+    scala> val y = new String("abc")
+  y: java.lang.String = abc
+    scala> x == y
+  res13: Boolean = true
+    scala> x eq y
+  res14: Boolean = false
+    scala> x ne y
+  res15: Boolean = true
+Equality in Scala is discussed further in Chapter 28.
+
+11.3 Bottom types [link]
+
+
+
+At the bottom of the type hierarchy in Figure 11.1
+you see the two classes
+scala.Null and scala.Nothing.  These are special types that handle some
+"corner cases" of Scala's object-oriented type system in a uniform way.
+
+Class Null is the type of the null reference; it is a subclass of
+every reference class (i.e., every class that itself inherits from AnyRef). 
+Null is not compatible with value types. 
+You cannot, for example, assign a null value to an integer
+variable:
+  scala> val i: Int = null
+  <console>:4: error: type mismatch;
+   found   : Null(null)
+   required: Int
+
+Type Nothing is at the very bottom of Scala's class hierarchy; it is a subtype of every other type. However, there exist no values of
+this type whatsoever. Why does it make sense to have a type without
+values?  As discussed in Section 7.4, one use of Nothing is that it signals abnormal
+termination. For instance there's the error method in the Predef object of
+Scala's standard library, which is defined like this:
+  def error(message: String): Nothing =
+    throw new RuntimeException(message)
+The return type of error is Nothing, which tells users that 
+the method will not return normally (it throws an exception instead). 
+Because Nothing is a subtype of every other type, 
+you can use methods like error in very flexible ways. For instance:
+  def divide(x: Int, y: Int): Int = 
+    if (y != 0) x / y 
+    else error("can't divide by zero")
+
+The "then" branch of the conditional, x / y, has type Int, whereas the
+else branch, the call to error, has type Nothing. Because Nothing is a subtype of
+Int, the type of the whole conditional is Int, as required.
+
+11.4 Conclusion [link]
+
+
+In this chapter we showed you the classes at the top and bottom of Scala's class hierarchy.
+Now that you've gotten a good foundation on class inheritance in Scala, you're ready to understand mixin composition.
+In the next chapter, you'll learn about traits.
+
+Footnotes for Chapter 11:
+
+
+[1] The reason the AnyRef alias exists, instead of just
+using the name java.lang.Object, is because Scala was designed to work on both the Java
+and .NET platforms. On .NET, AnyRef is an alias for System.Object.
+
+[2] You hash
+  cons instances of a class by caching all instances you have created
+  in a weak collection.  Then, any time you want a new instance of the
+  class, you first check the cache.  If the cache already has an
+  element equal to the one you are about to create, you can reuse the
+  existing instance.  As a result of this arrangement, any two
+  instances that are equal with equals() are also equal with reference
+  equality.

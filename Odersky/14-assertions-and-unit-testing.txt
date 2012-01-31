@@ -1,0 +1,505 @@
+
+Chapter 14 of Programming in Scala, First Edition
+Assertions and Unit Testing
+by Martin Odersky, Lex Spoon, and Bill Venners
+December 10, 2008
+
+
+
+
+Two important ways to check that the behavior of the software you write
+is as you expect are assertions and unit tests. In this chapter, we'll
+show you several options you have in Scala to write and run
+them.
+
+
+14.1 Assertions [link]
+
+
+
+Assertions in Scala are written as calls of a predefined method
+assert.[1]  The expression assert(condition) throws an AssertionError if
+condition does not hold. There's also a two-argument version
+of assert. The expression
+assert(condition, explanation) tests condition, and, if it does
+not hold, throws an AssertionError that contains the given
+explanation. The type of explanation is Any, so you can pass any object
+as the explanation. The 
+assert method will call toString on it to get a string explanation to
+place inside the AssertionError.
+
+For example, in the method named "above" of class Element, shown in 
+Listing 10.13 here, you might place an assert
+after the calls to widen to make sure that the widened elements
+have equal widths. This is shown in Listing 14.1.
+
+
+    def above(that: Element): Element = { 
+      val this1 = this widen that.width 
+      val that1 = that widen this.width 
+      assert(this1.width == that1.width)
+      elem(this1.contents ++ that1.contents) 
+    }
+
+
+Listing 14.1 - Using an assertion.
+
+
+Another way you might choose to do this is to check the widths at the end of
+the widen method, right before you return the value. You can accomplish this by storing
+the result in a val, performing an assertion on the result, then mentioning the val 
+last so the result is returned if the assertion succeeds.
+You can do this more concisely, however, with a convenience method in Predef named
+ensuring, as shown in
+Listing 14.2.
+
+
+    private def widen(w: Int): Element =
+      if (w <= width) 
+        this 
+      else { 
+        val left = elem(' ', (w - width) / 2, height) 
+        var right = elem(' ', w - width - left.width, height) 
+        left beside this beside right 
+      } ensuring (w <= _.width)
+
+
+Listing 14.2 - Using ensuring to assert a function's result.
+
+
+The ensuring method can be used with any result type because of an
+implicit conversion.
+Although it looks in this code as if we're invoking
+ensuring on widen's result, which is type Element, we're actually invoking
+ensuring on a type to which Element is implicitly converted. The ensuring method
+takes one argument, a predicate function that takes a result type and returns Boolean.
+ensuring will pass the result to the predicate. If the predicate returns true, ensuring will return the result.
+Otherwise, ensuring will throw an AssertionError.
+
+In this example, the predicate is "w <= _.width". The underscore is a placeholder for the one argument
+passed to the predicate, the Element result of the widen method. If the width passed as w to widen is
+less than or equal to the width of the result Element, the predicate will result in true, and ensuring
+will result in the Element on which it was invoked. Because this is the last expression of the widen method,
+widen itself will then result in the Element.
+
+Assertions (and ensuring checks) can be enabled and disabled using the JVM's -ea and -da command-line flags.
+When enabled, each assertion serves as a little test 
+that uses the actual data encountered as the software runs. In the remainder of this chapter, we'll focus on the 
+writing of external unit tests, which provide their own test data and run independently from the application.
+
+14.2 Unit testing in Scala [link]
+
+
+You have many options for unit testing in Scala, from established Java tools,
+such as JUnit and TestNG, to new tools written in Scala, such as
+ScalaTest, specs, and
+ScalaCheck.
+In the remainder of this chapter, we'll give you a quick tour of these tools. We'll start with
+ScalaTest.
+
+ScalaTest provides several ways to write tests, the simplest of which is to create classes
+that extend org.scalatest.Suite and define test methods in those classes. A Suite
+represents a suite of tests. Test methods start with "test". Listing 14.3 shows an example:
+
+
+    import org.scalatest.Suite
+    import Element.elem
+      class ElementSuite extends Suite {
+        def testUniformElement() {
+        val ele = elem('x', 2, 3)
+        assert(ele.width == 2)
+      }
+    }
+
+
+Listing 14.3 - Writing a test method with Suite.
+
+
+Although ScalaTest includes a Runner application, you can also
+run a Suite directly from the Scala interpreter by invoking execute on it.
+Trait Suite's execute method uses reflection to discover its test methods and
+invokes them. Here's an example:
+  scala> (new ElementSuite).execute()
+  Test Starting - ElementSuite.testUniformElement
+  Test Succeeded - ElementSuite.testUniformElement
+
+ScalaTest facilitates different styles of testing, because execute can be overridden in Suite subtypes.
+For example, ScalaTest offers a trait called FunSuite, which overrides execute so that you can define
+tests as function values rather than methods. Listing 14.4 shows an example:
+
+
+    import org.scalatest.FunSuite
+    import Element.elem
+      class ElementSuite extends FunSuite {
+        test("elem result should have passed width") {
+        val ele = elem('x', 2, 3)
+        assert(ele.width == 2)
+      }
+    }
+
+
+Listing 14.4 - Writing a test function with FunSuite.
+
+
+The "Fun" in FunSuite stands for function. "test" is a method defined in FunSuite, which will be invoked
+by the primary constructor of ElementSuite. You specify the name of the test as
+a string between the parentheses, and the test code itself between curly braces. 
+The test code is a function passed as a by-name parameter to test, which registers
+it for later execution. One benefit of FunSuite is you need not name all your
+tests starting with "test". In addition, you can more easily give long names to
+your tests, because you need not encode them in camel case, as you must do
+with test methods.[2]
+
+14.3 Informative failure reports [link]
+
+
+The tests in the previous two examples attempt to create an element of width 2 and assert
+that the width of the resulting element is indeed 2.
+Were this assertion to fail, you would see
+a message that indicated an assertion failed. You'd be given a line number, but wouldn't know the two
+values that were unequal. You could find out by placing a string message in the assertion that
+includes both values, but a more concise approach is to use the triple-equals operator, which ScalaTest provides
+for this purpose:
+  assert(ele.width === 2)
+Were this assertion to fail, you would see a message such as "3 did not equal 2" in the failure report.
+This would tell you that ele.width wrongly returned 3. The triple-equals operator does not differentiate
+between the actual and expected result. It just indicates that the left operand did not equal the right
+operand. If you wish to emphasize this distinction, you could alternatively use ScalaTest's expect method, like
+this:
+  expect(2) {
+    ele.width
+  }
+With this expression you indicate that you expect the code between the curly braces to result in 2. Were the code
+between the braces to result in 3, you'd see the message, "Expected 2, but got 3" in the test failure
+report.
+
+If you want to check that a method throws an expected exception, you can use ScalaTest's intercept
+method, like this:
+  intercept[IllegalArgumentException] {
+   elem('x', -2, 3)
+  }
+If the code between the curly braces completes abruptly with an instance of the passed exception class, intercept
+will return the caught exception, in case you want to inspect it further. Most often, you'll probably only care that
+the expected exception was thrown, and ignore the result of intercept, as is done in this example. On the other hand, if the code does not throw an
+exception, or throws a different exception, the intercept method will throw a TestFailedException, and you'll get a helpful error message in the failure report, such as:
+  Expected IllegalArgumentException to be thrown,
+    but NegativeArraySizeException was thrown.
+
+The goal of ScalaTest's === operator and its expect and intercept methods is to help you 
+write assertion-based tests that are clear and concise.
+In the next section, we'll show you how to use this syntax in JUnit and TestNG tests written in Scala.
+
+14.4 Using JUnit and TestNG [link]
+
+
+The most popular unit testing framework on the Java platform is JUnit, an open source tool
+written by Kent Beck and Erich Gamma. You can write JUnit tests in Scala quite easily. Here's an
+example using JUnit 3.8.1:
+  import junit.framework.TestCase
+  import junit.framework.Assert.assertEquals
+  import junit.framework.Assert.fail
+  import Element.elem
+    class ElementTestCase extends TestCase {
+      def testUniformElement() {
+      val ele = elem('x', 2, 3)
+      assertEquals(2, ele.width)
+      assertEquals(3, ele.height)
+      try {
+        elem('x', -2, 3)
+        fail()
+      }
+      catch {
+        case e: IllegalArgumentException => // expected
+      }
+    }
+  }
+Once you compile this class, JUnit will run it like any other TestCase. JUnit doesn't care that it was
+written in Scala. If you wish to use ScalaTest's assertion syntax in your JUnit 3 test, however, you can instead subclass
+JUnit3Suite, as shown Listing 14.5.
+
+
+    import org.scalatest.junit.JUnit3Suite
+    import Element.elem
+      class ElementSuite extends JUnit3Suite {
+        def testUniformElement() {
+        val ele = elem('x', 2, 3)
+        assert(ele.width === 2)
+        expect(3) { ele.height }
+        intercept[IllegalArgumentException] {
+          elem('x', -2, 3)
+        }
+      }
+    }
+
+
+Listing 14.5 - Writing a JUnit test with JUnit3Suite.
+
+
+Trait JUnit3Suite extends TestCase, so once you compile this class, JUnit will run it just fine, even though
+it uses ScalaTest's more concise assertion syntax. Moreover, because JUnit3Suite mixes in ScalaTest's trait Suite,
+you can alternatively run this test class with ScalaTest's runner. The goal is to provide a gentle
+migration path to enable JUnit users to start writing JUnit tests in Scala that take advantage of the conciseness afforded by
+Scala. ScalaTest also has a JUnitWrapperSuite, which enables you to run existing JUnit tests written in Java with ScalaTest's runner.
+
+ScalaTest offers similar integration classes for JUnit 4 and
+TestNG, both of which make heavy use of
+annotations. We'll show an example
+using TestNG, an open source framework written by Cedric Beust and Alexandru Popescu. As with JUnit, you can simply write TestNG tests in Scala, compile them, and run them with TestNG's runner. Here's an example:
+  import org.testng.annotations.Test
+  import org.testng.Assert.assertEquals
+  import Element.elem
+    class ElementTests {
+    @Test def verifyUniformElement() {
+      val ele = elem('x', 2, 3)
+      assertEquals(ele.width, 2)
+      assertEquals(ele.height, 3)
+    }
+    @Test {
+      val expectedExceptions =
+        Array(classOf[IllegalArgumentException])
+    }
+    def elemShouldThrowIAE() { elem('x', -2, 3) }
+  }
+If you prefer to use ScalaTest's assertion syntax in your TestNG tests, however, you can extend trait TestNGSuite, as shown in Listing 14.6:
+
+
+    import org.scalatest.testng.TestNGSuite
+    import org.testng.annotations.Test
+    import Element.elem
+      class ElementSuite extends TestNGSuite {
+        @Test def verifyUniformElement() {
+        val ele = elem('x', 2, 3)
+        assert(ele.width === 2)
+        expect(3) { ele.height }
+        intercept[IllegalArgumentException] {
+          elem('x', -2, 3)
+        }
+      }
+    }
+
+
+Listing 14.6 - Writing a TestNG test with TestNGSuite.
+
+
+As with JUnit3Suite, you can run a TestNGSuite with either TestNG or ScalaTest, and ScalaTest also
+provides a TestNGWrapperSuite that enables you to run existing TestNG tests written in Java with ScalaTest.
+To see an example of JUnit 4 tests written in Scala, see
+Section 29.2.
+
+14.5 Tests as specifications [link]
+
+
+In the behavior-driven development (BDD) testing style,
+the emphasis is on writing human-readable specifications of the expected behavior of code, and accompanying tests that
+verify the code has the specified behavior. 
+ScalaTest includes a trait, Spec, which facilitates this style of testing. An example is shown
+in Listing 14.7.
+
+
+    import org.scalatest.Spec
+      class ElementSpec extends Spec {
+        describe("A UniformElement") {
+          it("should have a width equal to the passed value") {
+          val ele = elem('x', 2, 3)
+          assert(ele.width === 2)
+        }
+          it("should have a height equal to the passed value") {
+          val ele = elem('x', 2, 3)
+          assert(ele.height === 3)
+        }
+          it("should throw an IAE if passed a negative width") {
+          intercept[IllegalArgumentException] {
+            elem('x', -2, 3)
+          }
+        }
+      }
+    }
+
+
+Listing 14.7 - Specifying and testing behavior with a ScalaTest Spec.
+
+
+A Spec contains "describers" and "specifiers." A describer, written as describe followed by a string in parentheses and then a block, describes
+the "subject" being specified and tested. A specifier, written as it followed by a string in parentheses and a block, specifies a small bit of
+behavior of that subject (in the string) and provides code that verifies that behavior (in the block). When a Spec is executed, it will run each specifier as a ScalaTest test.
+A Spec can generate output when it is executed that reads more like a specification.
+For example, here's what the output
+will look like if you run ElementSpec from Listing 14.7 in the interpreter:
+  scala> (new ElementSpec).execute()
+  A UniformElement
+  - should have a width equal to the passed value
+  - should have a height equal to the passed value
+  - should throw an IAE if passed a negative width
+
+The specs testing framework, an open
+source tool written in Scala by Eric Torreborre,
+also supports the BDD style of testing but with a different
+syntax.
+For example, you could use specs to write the test shown in Listing 14.8.
+
+
+    import org.specs._
+      object ElementSpecification extends Specification {
+      "A UniformElement" should {
+        "have a width equal to the passed value" in {
+          val ele = elem('x', 2, 3)
+          ele.width must be_==(2)
+        }
+        "have a height equal to the passed value" in {
+          val ele = elem('x', 2, 3)
+          ele.height must be_==(3)
+        }
+        "throw an IAE if passed a negative width" in {
+          elem('x', -2, 3) must
+            throwA[IllegalArgumentException]
+        }
+      }
+    }
+
+
+Listing 14.8 - Specifying and testing behavior with the specs framework.
+
+
+One goal of specs is to enable you to write assertions that read more like natural language and
+generate descriptive failure messages. Specs provides a large number of matchers for this purpose. You can
+also create your own matchers. You can see some examples of matchers in action in Listing 14.8 in 
+the lines that contain "must be_==" and "must throwA". You can also use specs matchers in ScalaTest, JUnit, or TestNG tests written in Scala
+by mixing trait org.specs.SpecsMatchers into your test
+classes.
+You can use specs standalone, but it is also
+integrated with ScalaTest and JUnit, so you can run specs tests with those tools as well.[3]
+
+14.6 Property-based testing [link]
+
+
+Another useful testing tool for Scala is ScalaCheck, an open source framework written by Rickard Nilsson. ScalaCheck
+enables you to specify properties that the code under test must
+obey. For each property, ScalaCheck will generate test data and run tests that check whether the property holds. Listing 14.9 show an example
+of using ScalaCheck from a ScalaTest suite.
+
+
+    import org.scalatest.prop.FunSuite
+    import org.scalacheck.Prop._
+    import Element.elem
+      class ElementSuite extends FunSuite {
+        test("elem result should have passed width", (w: Int) =>
+        w > 0 ==> (elem('x', w, 3).width == w)
+      )
+        test("elem result should have passed height", (h: Int) =>
+        h > 0 ==> (elem('x', 2, h).height == h)
+      )
+    }
+
+
+Listing 14.9 - Writing property-based tests with ScalaCheck.
+
+
+In this example, we check two properties that the elem factory
+should obey. ScalaCheck properties are expressed as function values that take as parameters the required
+test data, which will be generated by ScalaCheck. In the first property shown in Listing 14.9, the test data is an integer named w that
+represents a width. Inside the body of the function, you see:
+  w > 0 ==> (elem('x', w, 3).width == w)
+The ==> symbol is an implication operator. It implies that whenever the left hand expression is true,
+the expression on the right must hold true.
+Thus in this case, the expression on the right of ==> must hold true whenever w is greater than 0. The right-hand expression in this case
+will yield true if the width passed to the elem factory
+is the same as the width of the Element returned by the factory.
+
+With this small amount
+of code, ScalaCheck will generate possibly hundreds of values for w and test each one, looking for
+a value for which the property doesn't hold. If the property holds true for every value ScalaCheck tries, the
+test will pass. Otherwise, the test will complete abruptly with an AssertionError that
+contains information including the value that caused the
+failure.
+
+In Listing 14.9, each test was composed of a single property. Sometimes, however, you may want to make multiple property
+checks within a single test, or perform both property checks and assertions in the same test. ScalaTest's Checkers trait makes
+this easy. Simply mix Checkers into your test class, and pass properties to one of several "check" methods. For example, Listing 14.10
+shows a JUnit3Suite performing the same two ScalaCheck property checks shown in the previous example, but this time in a single test. As with all JUnit3Suites, this class is a JUnit TestCase and can therefore be run with either
+ScalaTest or JUnit.[4]
+
+  import org.scalatest.junit.JUnit3Suite
+  import org.scalatest.prop.Checkers
+  import org.scalacheck.Prop._
+  import Element.elem
+    class ElementSuite extends JUnit3Suite with Checkers {
+      def testUniformElement() {
+      check((w: Int) => w > 0 ==> (elem('x', w, 3).width == w))
+      check((h: Int) => h > 0 ==> (elem('x', 2, h).height == h))
+    }
+  }
+
+
+Listing 14.10 - Checking properties from a JUnit TestCase with Checkers.
+
+
+14.7 Organizing and running tests [link]
+
+
+Each framework mentioned in this chapter provides some mechanism for organizing and running tests. In this section, we'll give
+a quick overview of ScalaTest's approach. To get the full story on any of these frameworks, however, you'll need to consult
+their documentation.
+
+In ScalaTest, you organize large test suites by nesting Suites inside
+Suites. 
+When a Suite is executed, it will execute its nested Suites as well as its tests. The nested Suites will
+in turn execute their nested Suites, and so on. A large test suite, therefore, is represented as a tree of Suite objects.
+When you execute the root Suite in the tree, all Suites in the tree will be executed.
+
+You can nest suites manually or automatically. To nest manually, you either override the nestedSuites method on your Suites, 
+or pass the Suites you want to nest to the constructor of class SuperSuite, which ScalaTest provides for this purpose. To nest automatically,
+you provide package names to ScalaTest's Runner, which will discover Suites automatically, nest them under a root Suite, and
+execute the root Suite.
+
+You can invoke ScalaTest's Runner application from the command line or an ant task. You must specify which suites you want to run, either by
+naming the suites explicitly or indicating name prefixes with which you want Runner to perform automatic discovery. You can optionally specify a runpath, a list of
+directories and JAR files from with to load class files for the tests and the code they exercise.[5]
+You can also specify one or more reporters, which will determine how test results will be presented.
+
+
+
+
+ Figure 14.1 - ScalaTest's graphical reporter.
+
+
+For example, the ScalaTest distribution includes the suites that test ScalaTest itself. You can run one of these suites, SuiteSuite,[6] with the following command:
+  $ scala -cp scalatest-0.9.4.jar org.scalatest.tools.Runner
+        -p "scalatest-0.9.4-tests.jar" -s org.scalatest.SuiteSuite
+With -cp you place ScalaTest's JAR file on the class path. The next token, org.scalatest.tools.Runner, is the fully qualified name of the Runner application. Scala
+will run this application and pass the remaining tokens as command line arguments. The -p specifies the runpath, which in this case is a 
+JAR file that contains the suite classes: scalatest-0.9.4-tests.jar.
+The -s indicates SuiteSuite is the suite to execute. Because you don't explicitly specify a reporter, you will by default get
+the graphical reporter. The result is shown in
+Figure 14.1.
+
+14.8 Conclusion [link]
+
+
+In this chapter you saw examples of mixing assertions directly in production code as well as writing them externally 
+in unit tests.  You saw that as a Scala programmer, you can take
+advantage of popular testing tools from the Java community, such as JUnit and
+TestNG, as well as newer tools designed explicitly for Scala, such as ScalaTest, ScalaCheck, and specs. 
+Both in-code assertions and unit testing can help you achieve your software quality goals. We felt that these techniques 
+are important enough to justify the short detour from the Scala tutorial that this chapter represented. In the next chapter,
+however, we'll return to the language tutorial and cover a very useful
+aspect of Scala: pattern
+matching.
+
+Footnotes for Chapter 14:
+
+
+[1] The assert method is defined in the Predef
+singleton object, whose members are automatically imported into every
+Scala source file.
+
+[2] You can download ScalaTest from http://www.scalatest.org/.
+
+[3] You can download specs from http://code.google.com/p/specs/.
+
+[4] You can download ScalaCheck from http://code.google.com/p/scalacheck/.
+
+[5] Tests can be anywhere on the runpath or classpath, but
+typically you would keep your tests separate from your production code, in a separate directory hierarchy that mirrors your source tree's directory hierarchy.
+
+[6] SuiteSuite
+is so-named because it is a suite of tests that test trait Suite itself.

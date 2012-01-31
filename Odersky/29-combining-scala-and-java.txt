@@ -1,0 +1,542 @@
+Chapter 29 of Programming in Scala, First Edition
+Combining Scala and Java
+by Martin Odersky, Lex Spoon, and Bill Venners
+December 10, 2008
+
+
+
+
+Scala code is often used in tandem with large Java programs and
+frameworks. Since Scala is highly compatible with Java, most of the
+time you can combine the languages without worrying very much.  For
+example, standard frameworks such as Swing, Servlets, and JUnit are
+known to work just fine with Scala.  Nonetheless, from time to time
+you will run into some issue with combining Java and Scala.
+
+This chapter describes two aspects of combining Java and Scala.
+First, it discusses how Scala is translated to Java, which is
+especially important if you call Scala code from Java.  Second, it
+discusses the use of Java annotations in Scala, an important feature
+if you want to use Scala with an existing Java framework.
+
+
+
+29.1 Using Scala from Java [link]
+
+
+Most of the time you can think of Scala at the source code level.
+However, you will have a richer understanding of how the system
+works if you know something about its translation.  Further, if you
+call Scala code from Java, you will need to know what Scala code looks
+like from a Java point of view.
+
+General rules
+
+
+Scala is implemented as a translation to standard Java
+bytecodes. As
+much as possible, Scala features map directly onto the equivalent Java
+features.  Scala classes, methods, strings, exceptions, for example,
+are all compiled to the same in Java bytecode as their Java counterparts.
+
+To make this happen required an occasional hard choice in the design
+of Scala.  For example, it might have been nice to resolve overloaded
+methods at run time, using run-time types, rather than at compile time.
+Such a design would break with Java's, however, making it much
+trickier to mesh Java and Scala.  In this case, Scala stays with
+Java's overloading resolution, and thus Scala methods and method calls
+can map directly to Java methods and method calls.
+
+For other features Scala has its own design.  For example, traits have
+no equivalent in Java.  Similarly, while both Scala and Java have
+generic types, the details of the two systems clash.  For language
+features like these, Scala code cannot be mapped directly to a Java
+construct, so it must be encoded using some combination of the
+structures Java does have.
+
+For these features that are mapped indirectly, the encoding is not
+fixed.  There is an ongoing effort to make the translations as simple
+as possible, so by the time you read this, some details may be
+different than at the time of writing.  You can find out what
+translation your current Scala compiler uses by examining the
+".class" files with tools like javap.
+
+Those are the general rules.  Consider now some special cases.
+
+Value types
+
+
+A value type like Int can be translated in two different ways to
+Java.  Whenever possible, the compiler translates a Scala Int to a
+Java int to get better performance.  Sometimes this is not possible, though,
+because the compiler is not sure whether it is translating an Int
+or some other data type.  For example, a particular List[Any] might
+hold only Ints, but the compiler has no way to be sure.
+
+In cases like this, where the compiler is unsure whether an object
+is a value type or not, the compiler uses objects and relies on wrapper
+classes.  Wrapper classes such as, for example, java.lang.Integer allow
+a value type to be wrapped inside a Java object and thereby manipulated
+by code that needs objects.[1]
+
+Singleton objects
+
+
+Java has no exact equivalent to a singleton object, but it does have
+static methods. 
+The Scala translation of singleton objects uses a combination of static
+and instance methods.
+For every Scala singleton object, the compiler will create a Java class
+for the object with a dollar sign added to the end.  For a singleton
+object named App, the compiler produces a Java class named
+App$.  This class has all the methods and fields of the Scala
+singleton object.  The Java class also has a single static field named
+MODULE$ to hold the one instance of the class that is created at
+run time.
+
+As a full example, suppose you compile the following singleton object:
+  object App {
+    def main(args: Array[String]) {
+      println("Hello, world!")
+    }
+  }
+Scala will generate a Java App$ class with the following
+fields and methods:
+
+  $ javap App$
+  public final class App$ extends java.lang.Object
+  implements scala.ScalaObject{
+      public static final App$ MODULE$;
+      public static {};
+      public App$();
+      public void main(java.lang.String[]);
+      public int $tag();
+  }
+That's the translation for the general case.
+An important special case is if you have a "standalone" singleton object, one which does 
+not come with a class of the same name.  For example, you might have a
+singleton object named App, and not have any class named
+App.  In that case, the compiler will create a Java class named
+App that has a static forwarder method for each method of
+the Scala singleton object:
+
+
+  $ javap App
+  Compiled from "App.scala"
+  public final class App extends java.lang.Object{
+      public static final int $tag();
+      public static final void main(java.lang.String[]);
+  }
+To contrast, if you did have a class named App, Scala would
+create a corresponding Java App class to hold the members
+of the App class you defined.  In that case it would not add any forwarding
+methods for the same-named singleton object, and Java code would have
+to access the singleton via the MODULE$
+field.
+
+
+Traits as interfaces
+
+
+Compiling any trait creates a Java interface of the same
+name.  This
+interface is usable as a Java type, and it lets you call methods on
+Scala objects through variables of that type.
+
+Implementing a trait in Java is another story.  
+In the general case it is not practical.
+One special case is
+important, however.  If you make a Scala trait that includes only
+abstract methods, then that trait will be translated directly to a
+Java interface, with no other code to worry about.  Essentially this
+means that you can write a Java interface in Scala syntax if you like.
+
+29.2 Annotations [link]
+
+
+
+Scala's general annotations system is discussed in
+Chapter 25.  This section discusses Java-specific
+aspects of annotations.
+
+Additional effects from standard annotations
+
+
+Several annotations cause the compiler to emit extra information when
+targeting the Java platform.  When the compiler sees such an annotation, it first
+processes it according to the general Scala rules, and then it
+does something extra for Java.
+
+Deprecation
+For any method or class marked @deprecated, the
+compiler will add Java's own deprecation annotation to the
+emitted code.  Because of this, Java compilers can issue
+deprecation warnings when Java code accesses
+deprecated Scala methods.
+
+Volatile fields
+Likewise, any field marked @volatile in Scala is given the
+Java volatile modifier in the emitted code.  Thus, volatile
+fields in Scala behave exactly according to Java's semantics, and
+accesses to volatile fields are sequenced precisely according to the
+rules specified for volatile fields in the Java memory model.
+
+Serialization
+
+Scala's three standard serialization annotations are all
+translated to Java equivalents.  A @serializable class has
+Java's Serializable interface added to it.  A
+@SerialVersionUID(1234L) annotation is converted to the
+following Java field definition:
+  // Java serial version marker
+  private final static long SerialVersionUID = 1234L
+Any variable marked @transient is given the Java
+transient modifier.
+
+Exceptions thrown
+
+
+Scala does not check that thrown exceptions are caught.  That is,
+Scala has no equivalent to Java's throws declarations on
+methods.
+All Scala methods are translated to Java methods that declare no thrown
+exceptions.[2]
+
+The reason this feature is omitted from Scala is that the Java
+experience with it has not been purely positive.  Because annotating methods with throws
+clauses is a heavy burden, too many developers write code
+that swallows and drops exceptions, just to get the code to compile without adding all those throws clauses.
+They may intend to improve the exception handling later, but experience
+shows that all too often time-pressed programmers will never come back
+and add proper exception handling.  The twisted result is that this
+well-intentioned feature often ends up making code less
+reliable.  A large amount of production Java code swallows and hides
+runtime exceptions, and the reason it does so is to satisfy the
+compiler.
+
+Sometimes when interfacing to Java, however, you may need to write Scala code that
+has
+Java-friendly annotations describing which exceptions your methods may throw.
+For example, each method in an RMI remote interface is required to
+mention java.io.RemoteException in its throws clause.
+Thus, if you wish to write an RMI remote interface as a Scala trait with abstract methods, you would need to 
+list RemoteException in the throws clauses for those methods.
+To accomplish this, all you have to do
+is mark your methods with @throws annotations.
+For example, the Scala class shown in Listing 29.1 has a method marked as throwing
+IOException.
+
+
+    import java.io._
+    class Reader(fname: String) {
+      private val in =
+        new BufferedReader(new FileReader(fname))
+        @throws(classOf[IOException])
+      def read() = in.read()
+    }
+
+
+Listing 29.1 - A Scala method that declares a Java throws clause.
+
+
+Here is how it looks from Java:
+
+  $ javap Reader
+  Compiled from "Reader.scala"
+  public class Reader extends java.lang.Object implements
+  scala.ScalaObject{
+      public Reader(java.lang.String);
+      public int read()       throws java.io.IOException;
+      public int $tag();
+  }
+  $
+Note that the read method indicates with a Java throws clause that it
+may throw
+an IOException.
+
+
+Java annotations
+
+
+Existing annotations from Java frameworks can be used directly in Scala code.
+Any Java framework will see the annotations you write just as if you
+were writing in Java.
+
+A wide variety of Java packages use annotations.  As an example,
+consider JUnit 4. JUnit is a framework for writing automated tests
+and for running those tests.  The latest version, JUnit 4, uses
+annotations to indicate which parts of your code are tests.  The idea
+is that you write a lot of tests for your code, and then you run those
+tests whenever you change the source code.  That way, if your changes
+add a new bug, one of the tests will fail and you will find out
+immediately.
+
+Writing a test is easy.  You simply write a method in a top-level
+class that exercises your code, and you use an annotation to mark the
+method as a test.  It looks like this:
+  import org.junit.Test
+  import org.junit.Assert.assertEquals
+    class SetTest {
+      @Test
+    def testMultiAdd {
+      val set = Set() + 1 + 2 + 3 + 1 + 2 + 3
+      assertEquals(3, set.size)
+    }
+  }
+The testMultiAdd method is a test.  This test adds multiple items
+to a set and makes sure that each is added only once.  The
+assertEquals method, which comes as part of the JUnit API, checks
+that its two arguments are equal.  If they are different, then the
+test fails.  In this case, the test verifies that repeatedly adding
+the same numbers does not increase the size of a set.
+
+The test is marked using the annotation org.junit.Test. Note that
+this annotation has been imported, so it can be referred to as simply
+@Test instead of the more cumbersome @org.junit.Test.
+
+That's all there is to it.  The test can be run using any JUnit test
+runner.  Here it is being run with the command-line test
+runner:
+
+  $ scala -cp junit-4.3.1.jar:. org.junit.runner.JUnitCore SetTest
+  JUnit version 4.3.1
+  .
+  Time: 0.023
+  OK (1 test)
+
+
+Writing your own annotations
+
+
+To make an annotation that is visible to Java reflection, you must use
+Java notation and compile it with javac.
+For this use case, writing the annotation in Scala does not seem
+helpful, so the standard compiler does not support it.
+The reasoning is that the Scala support would inevitably fall short of
+the full possibilities of Java annotations, and further, Scala will probably
+one day have its own reflection, in which case you would want to
+access Scala annotations with Scala reflection.
+
+Here is an example annotation:
+  import java.lang.annotation.*;
+  @Retention(RetentionPolicy.RUNTIME)
+  @Target(ElementType.METHOD)
+  public @interface Ignore { }
+After compiling the above with javac, you can use the annotation
+as follows:
+  object Tests {
+    @Ignore
+    def testData = List(0, 1, -1, 5, -5)
+      def test1 {
+      assert(testData == (testData.head :: testData.tail))
+    }
+      def test2 {
+      assert(testData.contains(testData.head))
+    }
+  }
+In this example, test1 and test2 are supposed to be
+test methods, but testData should be ignored even though
+its name starts with "test".
+
+To see when these annotations are present, you can use the Java
+reflection APIs.  Here is sample code to show how it works:
+  for {
+    method <- Tests.getClass.getMethods
+    if method.getName.startsWith("test")
+    if method.getAnnotation(classOf[Ignore]) == null
+  } {
+    println("found a test method: " + method)
+  }
+Here, the reflective methods getClass and getMethods are
+used to
+inspect all the fields of the input object's class.  These are
+normal reflection methods.  The annotation-specific part is the use of
+method getAnnotation.  As of Java 1.5, many reflection objects have
+a getAnnotation method for searching for annotations of a specific
+type.  In this case, the code looks for an annotation of our new
+Ignore type.  Since this is a Java API, success is indicated by
+whether the result is null or is an actual annotation object.
+
+Here is the code in action:
+
+  $ javac Ignore.java
+  $ scalac Tests.scala
+  $ scalac FindTests.scala
+  $ scala FindTests
+  found a test method: public void Tests$.test2()
+  found a test method: public void Tests$.test1()
+As an aside, notice that the methods are in class Tests$ instead
+of class Tests when viewed with Java reflection.  As described at
+the beginning of the chapter, the implementation of a Scala singleton
+object is placed in a Java class with a dollar sign added to the end
+of its name.  In this case, the implementation of Tests is in the
+Java class Tests$.
+
+
+Be aware that when you use Java annotations you have to work within
+their limitations.  For example, you can only use constants,
+not expressions, in the arguments to annotations.  You can support
+@serial(1234) but not @serial(x * 2), because x * 2 is
+not a constant.
+
+29.3 Existential types [link]
+
+
+
+All Java types have a Scala equivalent.  This is necessary so that
+Scala code can access any legal Java class.  Most of the time the
+translation is straightforward.  Pattern in Java is Pattern in
+Scala, and Iterator<Component> in Java is Iterator[Component] in
+Scala.  For some cases, though, the Scala types you have seen so far
+are not enough.  What can be done with Java wildcard types such as
+Iterator<?> or Iterator<? extends Component>?  What can be
+done about raw types like Iterator, where the type parameter is omitted?
+For wildcard types and raw types, Scala uses an extra kind of type
+called an existential type.
+
+Existential types are a fully supported part of the language, but in
+practice they are mainly used when accessing Java types from Scala.
+This section gives a brief overview of how existential types work, but mostly
+this is only useful so that you can understand compiler error messages
+when your Scala code accesses Java code.
+
+The general form of an existential type is as follows:
+  type forSome { declarations }
+The type part is an arbitrary Scala type, and the
+declarations part is a list of abstract vals and types.
+The interpretation is that the declared variables and types exist
+but are unknown, just like abstract members of a class.  The
+type is then allowed to refer to the declared variables and
+types even though it is unknown what they refer to.
+
+Take a look at some concrete examples.  A Java
+Iterator<?> would be written in Scala as:
+  Iterator[T] forSome { type T }
+Read this from left to right.  This is an Iterator of T's for
+some type T.  The type T is unknown, and could be anything, but
+it is known to be fixed for this particular Iterator.  Similarly,
+a Java Iterator<? extends Component> would be viewed in Scala
+as:
+  Iterator[T] forSome { type T <: Component }
+This is an Iterator of T, for some type T that is a subtype
+of Component.  In this case T is still unknown, but now it is
+sure to be a subtype of Component.
+
+By the way, there is a shorter way to write these examples.  If you
+write Iterator[_], it means the same thing as
+Iterator[T] forSome { type T }.  This is placeholder syntax
+for existential types, and is similar in spirit to the placeholder
+syntax for function literals that was described in
+Section 8.5.
+If you use an underscore (_) in place of
+an expression, then Scala treats this as a placeholder and makes a
+function literal for you.  For types it works similarly.  If you use an
+underscore in place of a type, Scala makes an existential type for you.
+Each underscore becomes one type parameter in a forSome clause, so if you
+use two underscores in the same type, you will get the effect of a
+forSome clause with two types in it.
+
+You can also insert upper and lower bounds when using this placeholder
+syntax.  Simply add them to the underscore instead of in the forSome
+clause.  The type Iterator[_ <: Component] is the same as this one,
+which you just saw:
+  Iterator[T] forSome { type T <: Component }
+
+Enough about the existential types themselves.  How do you actually
+use them?
+Well, in simple cases, you use an existential type just as if the forSome
+were not there.  Scala will check that the program is sound even
+though the types and values in the forSome clause are unknown.
+For example, suppose you had the following Java class:
+  // This is a Java class with wildcards
+  public class Wild {
+    Collection<?> contents() {
+      Collection stuff = new Vector();
+      stuff.add("a");
+      stuff.add("b");
+      stuff.add("see");
+      return stuff;
+    }
+  }
+If you access this in Scala code you will see that it has an
+existential type:
+
+  scala> val contents = (new Wild).contents
+  contents: java.util.Collection[?0] forSome { type ?0 } =
+     [a, b, see]
+If you want to find out how many elements are in this collection, you
+can simply ignore the existential part and call the size method as
+normal:
+  scala> contents.size()
+  res0: Int = 3
+In more complicated cases, existential types can be more awkward,
+because there is no way to name the existential type.  For example,
+suppose you wanted to create a mutable Scala set and initialize
+it with the elements of contents:
+  import scala.collection.mutable.Set
+  val iter = (new Wild).contents.iterator
+  val set = Set.empty[???]     // what type goes here?
+  while (iter.hasMore)
+    set += iter.next()
+A problem strikes on the third line.  There is no way to name the type of
+elements in the Java collection, so you cannot write down a
+satisfactory type for set.  To work around this kind of problem,
+here are two tricks you should consider:
+
+
+When passing an existential type into a method, move type parameters
+      from the forSome clause to type parameters of the method.  Inside
+      the body of the method, you can use the type parameters to refer
+      to the types that were in the forSome clause.
+
+
+Instead of returning an existential type from a method,
+      return an object that has abstract members for each of the types
+      in the forSome clause.  (See
+      Chapter 20 for information
+      on abstract members.)
+Using these two tricks together, the previous code can be
+written as follows:
+  import scala.collection.mutable.Set
+  import java.util.Collection
+    abstract class SetAndType {
+    type Elem
+    val set: Set[Elem]
+  }
+    def javaSet2ScalaSet[T](jset: Collection[T]): SetAndType = {
+    val sset = Set.empty[T]  // now T can be named!
+      val iter = jset.iterator
+    while (iter.hasNext)
+      sset += iter.next()
+      return new SetAndType {
+      type Elem = T
+      val set = sset
+    }
+  }
+You can see why Scala code normally does not use existential types.
+To do anything sophisticated with them, you tend to convert them to
+use abstract members.  So you may as well use abstract
+members to begin with.
+
+
+29.4 Conclusion [link]
+
+
+Most of the time, you can ignore how Scala is implemented and simply
+write and run your code.  Sometimes it is nice to "look under the
+hood," however, so this chapter has gone into three aspects of
+Scala's implementation on the Java platform: what the translation
+looks like, how Scala and Java annotations work together, and how
+Scala's existential types let you access Java wildcard types.  These
+topics are important whenever you use Scala and Java
+together.
+
+Footnotes for Chapter 29:
+
+
+[1] The implementation of value types was discussed in detail in
+Section 11.2.
+
+[2] The reason it all works is that the Java bytecode
+verifier does not check the declarations, anyway!  The Java compiler checks,
+but not the verifier.
